@@ -7,7 +7,8 @@ ASFLAGS = -m32
 LDFLAGS = -m elf_i386 -T linker.ld
 
 OBJS = boot/boot.o \
-       kernel/kernel.o
+       kernel/kernel.o \
+       drivers/graphics/vga.o
 
 KERNEL = build/tinyos.elf
 

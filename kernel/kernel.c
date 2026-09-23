@@ -1,26 +1,24 @@
-/* tinyos kernel entry: validate Multiboot magic, poke VGA directly.
- * A real console driver lands in drivers/graphics/ next commit. */
+/* tinyos kernel entry: init VGA console, report multiboot status. */
+
+#include "graphics/vga.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
-#define VGA_BASE ((volatile unsigned short *)0xB8000)
-#define VGA_CELLS (80 * 25)
 
 void kmain(unsigned int magic, void *info)
 {
-    const char *msg;
-    unsigned int i;
     (void)info;
 
+    vga_init();
+    vga_setcolor(VGA_LIGHT_GREEN, VGA_BLACK);
+    vga_puts("tinyos -- tiny pure-UNIX kernel\n");
+    vga_setcolor(VGA_LIGHT_GREY, VGA_BLACK);
+
     if (magic == MULTIBOOT_MAGIC)
-        msg = "tinyos: booted via multiboot [OK]";
+        vga_puts("boot: multiboot magic OK\n");
     else
-        msg = "tinyos: BAD multiboot magic [!]";
+        vga_puts("boot: BAD multiboot magic!\n");
 
-    for (i = 0; i < VGA_CELLS; i++)
-        VGA_BASE[i] = (unsigned short)(0x0F00 | ' ');
-
-    for (i = 0; msg[i] != '\0'; i++)
-        VGA_BASE[i] = (unsigned short)(0x0F00 | msg[i]);
+    vga_puts("console: vga 80x25 ready\n");
 
     for (;;)
         __asm__ volatile("hlt");
