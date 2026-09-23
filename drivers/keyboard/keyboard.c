@@ -56,8 +56,9 @@ char keyboard_getc(void)
         int released;
         char c;
 
+        /* No IRQ handler/IDT is installed yet, so HLT would never wake. */
         while (!keyboard_hasdata())
-            __asm__ volatile("hlt");
+            __asm__ volatile("pause");
 
         code = inb(KB_DATA);
         released = (code & 0x80) != 0;
