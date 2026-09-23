@@ -1,7 +1,9 @@
-/* tinyos kernel entry: init VGA console, report multiboot status. */
+/* tinyos kernel entry: init console + keyboard, drop into shell. */
 
 #include "graphics/vga.h"
+#include "keyboard/keyboard.h"
 #include "lib.h"
+#include "shell.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
 
@@ -19,9 +21,12 @@ void kmain(unsigned int magic, void *info)
     else
         vga_puts("boot: BAD multiboot magic!\n");
 
-    vga_puts("console: vga 80x25 ready\n");
-    kprintf("klib: printf test: %d %u %x %s %c %p %%\n",
-            -42, 42u, 0xC0FFEE, "ok", '!', (unsigned int)info);
+    kprintf("boot: info=%p\n", (unsigned int)info);
+
+    keyboard_init();
+    vga_puts("input: ps/2 keyboard ready\n");
+
+    shell_run();
 
     for (;;)
         __asm__ volatile("hlt");

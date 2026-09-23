@@ -9,6 +9,7 @@ LDFLAGS = -m elf_i386 -T linker.ld
 OBJS = boot/boot.o \
        kernel/kernel.o \
        kernel/lib.o \
+       kernel/shell.o \
        drivers/graphics/vga.o \
        drivers/keyboard/keyboard.o
 
