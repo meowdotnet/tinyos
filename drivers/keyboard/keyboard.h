@@ -6,5 +6,6 @@
 void keyboard_init(void);
 int keyboard_hasdata(void); /* 1 if a scancode is waiting */
 char keyboard_getc(void);   /* blocking: next ASCII char, 0 = non-printable */
+void keyboard_irq(void);    /* IRQ1 handler, registered by interrupts_init */
 
 #endif

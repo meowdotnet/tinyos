@@ -2,9 +2,10 @@
 
 tinyos is a small, freestanding 32-bit x86 kernel with a UNIX-inspired layout
 and interactive shell. It boots through the Multiboot v1 protocol and currently
-provides VGA text output, a polling PS/2 keyboard driver, basic kernel helpers,
-and shell builtins. It is an educational starting point, not a POSIX system:
-there is no userspace, filesystem, process model, or system-call interface yet.
+provides VGA text output, an interrupt-driven PS/2 keyboard driver, basic kernel
+helpers, and shell builtins. It is an educational starting point, not a POSIX
+system: there is no userspace, filesystem, process model, or system-call
+interface yet.
 
 ## Build
 
@@ -30,10 +31,15 @@ display by default. Pass `--qemu` to use QEMU's normal graphical display:
 ## Layout
 
 - `boot/` — Multiboot entry point and initial stack
-- `kernel/` — kernel entry, freestanding helpers, shell, panic handler
+- `kernel/` — kernel entry, freestanding helpers, physical-page allocator,
+  identity paging, x86 descriptor/interrupt setup, shell, and panic handler
 - `drivers/graphics/` — VGA text-mode console
 - `drivers/keyboard/` — PS/2 keyboard (US scancode set 1)
 - `linker.ld`, `grub.cfg`, `Makefile` — ELF layout and build/boot setup
 
-After boot, type `help` at the `tinyos$` prompt. The `panic` command deliberately
-halts the kernel and is useful for checking the fatal-error display.
+After boot, the kernel reports memory and interrupt setup, then type `help` at
+the `tinyos$` prompt. Keyboard input now arrives through IRQ1. The kernel uses
+flat ring 0/ring 3 GDT entries and a TSS, while its first 64 MiB are identity
+mapped with 4 MiB pages; these are the base for a later userspace transition.
+The `panic` command deliberately halts the kernel and is useful for checking the
+fatal-error display.

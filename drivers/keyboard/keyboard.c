@@ -6,6 +6,11 @@
 static int shift_held;
 static int caps_on;
 
+#define KEYBOARD_QUEUE_SIZE 128
+static char queue[KEYBOARD_QUEUE_SIZE];
+static unsigned int queue_head;
+static unsigned int queue_tail;
+
 static unsigned char inb(unsigned short port)
 {
     unsigned char v;
@@ -34,6 +39,8 @@ void keyboard_init(void)
 {
     shift_held = 0;
     caps_on = 0;
+    queue_head = 0;
+    queue_tail = 0;
     /* drain stale controller output */
     while (inb(KB_STATUS) & 0x01)
         (void)inb(KB_DATA);
@@ -41,7 +48,7 @@ void keyboard_init(void)
 
 int keyboard_hasdata(void)
 {
-    return (inb(KB_STATUS) & 0x01) != 0;
+    return queue_head != queue_tail;
 }
 
 static int is_alpha(char c)
@@ -49,43 +56,59 @@ static int is_alpha(char c)
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
+static void queue_put(char c)
+{
+    unsigned int next = (queue_head + 1) % KEYBOARD_QUEUE_SIZE;
+    if (next != queue_tail) {
+        queue[queue_head] = c;
+        queue_head = next;
+    }
+}
+
+static void process_scancode(unsigned char code)
+{
+    int released = (code & 0x80) != 0;
+    char c;
+
+    code &= 0x7F;
+
+    if (code == 0x2A || code == 0x36) {
+        shift_held = !released;
+        return;
+    }
+    if (code == 0x3A && !released) {
+        caps_on = !caps_on;
+        return;
+    }
+    if (released || code >= 128)
+        return;
+
+    c = shift_held ? kmap_shift[code] : kmap[code];
+    if (c == 0)
+        return;
+
+    if (caps_on && is_alpha(c))
+        c = shift_held ? (char)(c + 32) : (char)(c - 32);
+
+    queue_put(c);
+}
+
+void keyboard_irq(void)
+{
+    while (inb(KB_STATUS) & 0x01)
+        process_scancode(inb(KB_DATA));
+}
+
 char keyboard_getc(void)
 {
     for (;;) {
-        unsigned char code;
-        int released;
-        char c;
-
-        /* No IRQ handler/IDT is installed yet, so HLT would never wake. */
-        while (!keyboard_hasdata())
-            __asm__ volatile("pause");
-
-        code = inb(KB_DATA);
-        released = (code & 0x80) != 0;
-        code &= 0x7F;
-
-        /* modifier tracking */
-        if (code == 0x2A || code == 0x36) {
-            shift_held = !released;
-            continue;
+        if (keyboard_hasdata()) {
+            char c = queue[queue_tail];
+            queue_tail = (queue_tail + 1) % KEYBOARD_QUEUE_SIZE;
+            return c;
         }
-        if (code == 0x3A && !released) {
-            caps_on = !caps_on;
-            continue;
-        }
-        if (released)
-            continue;
-        if (code >= 128)
-            continue;
 
-        c = shift_held ? kmap_shift[code] : kmap[code];
-        if (c == 0)
-            continue; /* ctrl/alt/F-keys: swallow for now */
-
-        /* caps lock flips alpha only */
-        if (caps_on && is_alpha(c))
-            c = shift_held ? (char)(c + 32) : (char)(c - 32);
-
-        return c;
+        /* IRQ1 wakes us when the next key reaches the controller. */
+        __asm__ volatile("hlt");
     }
 }

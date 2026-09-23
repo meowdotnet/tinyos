@@ -2,7 +2,10 @@
 
 #include "graphics/vga.h"
 #include "keyboard/keyboard.h"
+#include "arch/i386/gdt.h"
+#include "arch/i386/interrupts.h"
 #include "lib.h"
+#include "memory.h"
 #include "shell.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
@@ -23,8 +26,17 @@ void kmain(unsigned int magic, void *info)
 
     kprintf("boot: info=%p\n", (unsigned int)info);
 
+    gdt_init();
+    memory_init(info, magic == MULTIBOOT_MAGIC);
+    paging_init();
+    kprintf("memory: %u KiB free, identity map active\n",
+            memory_free_pages() * 4u);
+
     keyboard_init();
+    interrupts_init();
+    interrupts_enable();
     vga_puts("input: ps/2 keyboard ready\n");
+    vga_puts("interrupts: IDT and PIC ready\n");
 
     shell_run();
 

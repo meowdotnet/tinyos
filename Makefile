@@ -2,6 +2,7 @@ CC      = gcc
 LD      = ld
 CFLAGS  = -m32 -std=c99 -ffreestanding -nostdlib -nostartfiles \
           -fno-builtin -fno-stack-protector -fno-pic \
+          -mno-mmx -mno-sse -mno-sse2 \
           -Wall -Wextra -O2 -Iinclude -Ikernel -Idrivers
 ASFLAGS = -m32
 LDFLAGS = -m elf_i386 -T linker.ld
@@ -9,6 +10,11 @@ LDFLAGS = -m elf_i386 -T linker.ld
 OBJS = boot/boot.o \
        kernel/kernel.o \
        kernel/lib.o \
+       kernel/memory.o \
+       kernel/arch/i386/gdt.o \
+       kernel/arch/i386/gdt_load.o \
+       kernel/arch/i386/interrupts.o \
+       kernel/arch/i386/interrupt_stubs.o \
        kernel/shell.o \
        kernel/panic.o \
        drivers/graphics/vga.o \

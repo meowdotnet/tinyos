@@ -19,6 +19,8 @@ stack_bottom:
 .skip 16384 /* 16 KiB kernel stack */
 stack_top:
 
+.global stack_top
+
 .section .text
 .global _start
 .type _start, @function
