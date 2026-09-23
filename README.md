@@ -19,6 +19,14 @@ The kernel ELF is written to `build/tinyos.elf`. To create a bootable ISO, insta
 GRUB's `grub-mkrescue` and `xorriso`, then run `make iso`. To run it directly in
 QEMU, install `qemu-system-i386` and run `make qemu`.
 
+The convenience launcher builds the kernel and starts it in QEMU's terminal
+display by default. Pass `--qemu` to use QEMU's normal graphical display:
+
+```sh
+./run.sh
+./run.sh --qemu
+```
+
 ## Layout
 
 - `boot/` — Multiboot entry point and initial stack
