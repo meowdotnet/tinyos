@@ -10,6 +10,7 @@ OBJS = boot/boot.o \
        kernel/kernel.o \
        kernel/lib.o \
        kernel/shell.o \
+       kernel/panic.o \
        drivers/graphics/vga.o \
        drivers/keyboard/keyboard.o
 

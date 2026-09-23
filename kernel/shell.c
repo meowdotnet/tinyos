@@ -2,6 +2,7 @@
 #include "lib.h"
 #include "graphics/vga.h"
 #include "keyboard/keyboard.h"
+#include "panic.h"
 
 #define SHELL_BUF 128
 
@@ -14,7 +15,7 @@ static void prompt(void)
 
 static void do_help(void)
 {
-    vga_puts("commands: help uname echo <text> clear whoami\n");
+    vga_puts("commands: help uname echo <text> clear whoami panic <reason>\n");
 }
 
 static void do_uname(void)
@@ -57,6 +58,8 @@ static void run_line(char *line)
         vga_clear();
     else if (kstrcmp(line, "whoami") == 0)
         vga_puts("root\n");
+    else if (kstrcmp(line, "panic") == 0)
+        panic(*args ? args : "shell requested panic");
     else {
         vga_puts("sh: unknown command: ");
         vga_puts(line);
