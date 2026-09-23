@@ -9,7 +9,8 @@ LDFLAGS = -m elf_i386 -T linker.ld
 OBJS = boot/boot.o \
        kernel/kernel.o \
        kernel/lib.o \
-       drivers/graphics/vga.o
+       drivers/graphics/vga.o \
+       drivers/keyboard/keyboard.o
 
 KERNEL = build/tinyos.elf
 
