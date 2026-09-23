@@ -28,6 +28,7 @@ void vga_init(void);
 void vga_clear(void);
 void vga_setcolor(unsigned char fg, unsigned char bg);
 void vga_putc(char c);
+void vga_backspace(void);
 void vga_puts(const char *s);
 void vga_write(const char *s, unsigned int n);
 

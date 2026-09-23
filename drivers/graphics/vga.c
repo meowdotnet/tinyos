@@ -94,6 +94,20 @@ void vga_puts(const char *s)
         vga_putc(s[i++]);
 }
 
+void vga_backspace(void)
+{
+    if (vga_col > 0) {
+        vga_col--;
+    } else if (vga_row > 0) {
+        vga_row--;
+        vga_col = VGA_WIDTH - 1;
+    } else {
+        return;
+    }
+    VGA_BASE[vga_row * VGA_WIDTH + vga_col] = vga_entry(' ', vga_color);
+    vga_update_cursor();
+}
+
 void vga_write(const char *s, unsigned int n)
 {
     unsigned int i;
