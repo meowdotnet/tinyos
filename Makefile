@@ -12,6 +12,7 @@ OBJS = boot/boot.o \
        kernel/lib.o \
        kernel/memory.o \
        kernel/process.o \
+       kernel/arch/i386/user_mode.o \
        kernel/syscall.o \
        kernel/arch/i386/gdt.o \
        kernel/arch/i386/gdt_load.o \
@@ -20,7 +21,8 @@ OBJS = boot/boot.o \
        kernel/shell.o \
        kernel/panic.o \
        drivers/graphics/vga.o \
-       drivers/keyboard/keyboard.o
+       drivers/keyboard/keyboard.o \
+       user/init.o
 
 KERNEL = build/tinyos.elf
 

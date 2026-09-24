@@ -7,9 +7,13 @@
 #include "lib.h"
 #include "memory.h"
 #include "process.h"
+#include "panic.h"
 #include "shell.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
+
+extern char user_init_image[];
+extern char user_init_image_end[];
 
 void kmain(unsigned int magic, void *info)
 {
@@ -42,7 +46,16 @@ void kmain(unsigned int magic, void *info)
     vga_puts("input: ps/2 keyboard ready\n");
     vga_puts("interrupts: IDT and PIC ready\n");
 
-    shell_run();
+    {
+        struct process *init = process_create();
+        unsigned int image_size = (unsigned int)(user_init_image_end - user_init_image);
+
+        if (!init || process_load_builtin(init, user_init_image, image_size,
+                                          USER_VIRTUAL_BASE) != 0)
+            panic("unable to start init");
+        kprintf("process: starting init pid %u in ring 3\n", init->pid);
+        process_start(init, USER_VIRTUAL_BASE);
+    }
 
     for (;;)
         __asm__ volatile("hlt");

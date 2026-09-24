@@ -2,11 +2,13 @@
 #include "arch/i386/gdt.h"
 #include "lib.h"
 #include "memory.h"
+#include "shell.h"
 
 #define PROCESS_MAX 8u
 #define USER_STACK_TOP 0x80000000u
 
 extern char stack_top;
+extern void process_enter_user(uint32_t entry, uint32_t stack);
 
 static struct process processes[PROCESS_MAX];
 static struct process *current;
@@ -105,6 +107,10 @@ void process_destroy(struct process *process)
     }
     if (process->kernel_stack_page)
         memory_free_page(process->kernel_stack_page);
+    if (process->user_code_page) {
+        paging_unmap_user_page(process->page_directory, USER_VIRTUAL_BASE);
+        memory_free_page(process->user_code_page);
+    }
     paging_destroy_user_directory(process->page_directory);
     kmemset(process, 0, sizeof(*process));
     active_processes--;
@@ -124,6 +130,49 @@ void process_exit_current(uint32_t status)
     (void)status;
     if (current)
         current->state = PROCESS_TERMINATED;
+}
+
+int process_load_builtin(struct process *process, const void *image,
+                         uint32_t image_size, uint32_t entry)
+{
+    unsigned int page;
+
+    if (!process || !image || !image_size || image_size > PAGE_SIZE ||
+        entry != USER_VIRTUAL_BASE || process->user_code_page)
+        return -1;
+    page = memory_alloc_user_page();
+    if (!page)
+        return -1;
+    kmemset((void *)page, 0, PAGE_SIZE);
+    kmemcpy((void *)page, image, image_size);
+    if (process_map_user_page(process, USER_VIRTUAL_BASE, page, 0) != 0) {
+        memory_free_page(page);
+        return -1;
+    }
+    process->user_code_page = page;
+    process->state = PROCESS_READY;
+    return 0;
+}
+
+void process_start(struct process *process, uint32_t entry)
+{
+    if (!process || process->state != PROCESS_READY)
+        return;
+    switch_to(process);
+    process_enter_user(entry, process->user_stack);
+}
+
+void process_return_to_kernel(void)
+{
+    struct process *bootstrap = &processes[0];
+
+    paging_switch_directory(bootstrap->page_directory);
+    current = bootstrap;
+    current->state = PROCESS_RUNNING;
+    gdt_set_kernel_stack(current->kernel_stack);
+    shell_run();
+    for (;;)
+        __asm__ volatile("hlt");
 }
 
 struct process *process_current(void)

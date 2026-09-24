@@ -39,6 +39,8 @@ void syscall_dispatch(struct syscall_frame *frame)
         return;
     case SYS_EXIT:
         process_exit_current(frame->ebx);
+        frame->eip = (unsigned int)process_return_to_kernel;
+        frame->cs = 0x08u;
         frame->eax = 0;
         return;
     default:

@@ -23,6 +23,7 @@ SECTIONS
 
     .rodata : {
         *(.rodata*)
+        *(.user_init)
     } :text
 
     .data : {
