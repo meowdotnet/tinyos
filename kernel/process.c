@@ -72,19 +72,29 @@ void process_init(void)
     next_pid = 1;
 }
 
+void process_reap_children(void)
+{
+    unsigned int i;
+    if (!current)
+        return;
+    for (i = 1; i < PROCESS_MAX; i++) {
+        struct process *z = &processes[i];
+        if (z->state == PROCESS_TERMINATED && z->parent_pid == current->pid &&
+            !(current->pending_wait_valid &&
+              z->pid == current->pending_wait_pid))
+            process_destroy(z);
+    }
+}
+
 struct process *process_create(void)
 {
     struct process *p = 0;
     unsigned int i;
     unsigned int dir, ksp, usp;
+    int stack_mapped = 0;
 
     /* Reap our own terminated children so respawns reuse their slots. */
-    for (i = 1; i < PROCESS_MAX; i++) {
-        struct process *z = &processes[i];
-        if (z->state == PROCESS_TERMINATED && current &&
-            z->parent_pid == current->pid)
-            process_destroy(z);
-    }
+    process_reap_children();
     for (i = 1; i < PROCESS_MAX; i++) {
         if (processes[i].state == PROCESS_UNUSED) {
             p = &processes[i];
@@ -103,6 +113,7 @@ struct process *process_create(void)
         goto fail;
     if (paging_map_user_page(dir, USER_STACK_TOP - PAGE_SIZE, usp, 1) != 0)
         goto fail;
+    stack_mapped = 1;
 
     kmemset((void *)ksp, 0, PAGE_SIZE);
     kmemset((void *)usp, 0, PAGE_SIZE);
@@ -115,12 +126,15 @@ struct process *process_create(void)
     p->user_stack_page = usp;
     p->user_stack = USER_STACK_TOP;
     p->state = PROCESS_BLOCKED;
+    p->uid = 0;
+    p->gid = 0;
+    tfs_init_process_fds(p->open_files);
     prepare_user_frame(p, USER_VIRTUAL_BASE);
     active_processes++;
     return p;
 
 fail:
-    if (usp)
+    if (!stack_mapped && usp)
         memory_free_page(usp);
     if (ksp)
         memory_free_page(ksp);
@@ -178,8 +192,14 @@ int process_load_builtin(struct process *p, const void *image,
 
 static void switch_to(struct process *next, int deliver, uint32_t status)
 {
-    if (deliver && next->saved_esp)
+    if (next->pending_wait_valid && next->saved_esp) {
+        ((struct syscall_frame *)next->saved_esp)->eax =
+            next->pending_wait_status;
+        next->pending_wait_pid = 0;
+        next->pending_wait_valid = 0;
+    } else if (deliver && next->saved_esp) {
         ((struct syscall_frame *)next->saved_esp)->eax = status;
+    }
     current = next;
     next->state = PROCESS_RUNNING;
     paging_switch_directory(next->page_directory);
@@ -236,8 +256,13 @@ void process_exit_current(uint32_t status)
     current->exit_status = status;
     current->state = PROCESS_TERMINATED;
     parent = find_by_pid(current->parent_pid);
-    if (parent && parent->state == PROCESS_BLOCKED)
-        parent->state = PROCESS_READY;
+    if (parent) {
+        parent->pending_wait_status = status;
+        parent->pending_wait_pid = current->pid;
+        parent->pending_wait_valid = 1;
+        if (parent->state == PROCESS_BLOCKED)
+            parent->state = PROCESS_READY;
+    }
     next = pick_ready();
     if (!next)
         goto halt;
@@ -249,12 +274,36 @@ halt:
         __asm__ volatile("hlt");
 }
 
-void process_block_and_switch(void)
+static int has_child(const struct process *parent)
+{
+    unsigned int i;
+    for (i = 1; i < PROCESS_MAX; i++) {
+        if (processes[i].state != PROCESS_UNUSED &&
+            processes[i].parent_pid == parent->pid)
+            return 1;
+    }
+    return 0;
+}
+
+int process_block_and_switch(void)
 {
     struct process *next;
 
     if (!current || current == &processes[0])
-        goto halt;
+        return -1;
+    if (current->pending_wait_valid) {
+        struct process *done = find_by_pid(current->pending_wait_pid);
+        uint32_t status = current->pending_wait_status;
+        current->pending_wait_pid = 0;
+        current->pending_wait_valid = 0;
+        if (done && done->state == PROCESS_TERMINATED)
+            process_destroy(done);
+        if (current->saved_esp)
+            ((struct syscall_frame *)current->saved_esp)->eax = status;
+        return 0;
+    }
+    if (!has_child(current))
+        return -1;
     current->state = PROCESS_BLOCKED;
     next = pick_ready();
     if (!next)

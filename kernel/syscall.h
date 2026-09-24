@@ -9,6 +9,17 @@
 #define SYS_CLEAR 6u
 #define SYS_SHUTDOWN 7u
 
+/* TinyFS file operations.  File descriptors index the calling process's
+ * open-file table (see struct process.open_files). */
+#define SYS_OPEN    8u   /* ebx=path, ecx=flags -> eax=fd (>=0) or -err */
+#define SYS_CLOSE   9u   /* ebx=fd */
+#define SYS_FREAD  10u   /* ebx=fd, ecx=buf, edx=count -> eax=bytes read */
+#define SYS_FWRITE 11u   /* ebx=fd, ecx=buf, edx=count -> eax=bytes written */
+#define SYS_MKDIR  12u   /* ebx=path, ecx=mode */
+#define SYS_READDIR 13u  /* ebx=fd, ecx=buf, edx=bufsize -> eax=bytes */
+#define SYS_STAT   14u   /* ebx=path, ecx=struct tfs_stat* */
+#define SYS_LSEEK  15u   /* ebx=fd, ecx=offset, edx=whence -> eax=new offset */
+
 /*
  * This struct must exactly match the stack frame built by
  * interrupt_common (interrupt_stubs.s).  Offsets from the frame base:

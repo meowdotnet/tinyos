@@ -225,13 +225,20 @@ unsigned int paging_create_user_directory(void)
 void paging_destroy_user_directory(unsigned int directory_address)
 {
     unsigned int *directory = (unsigned int *)directory_address;
-    unsigned int i;
+    unsigned int i, j;
 
     if (!directory_address || directory_address == (unsigned int)page_directory)
         return;
     for (i = USER_VIRTUAL_BASE >> 22; i < USER_VIRTUAL_LIMIT >> 22; i++) {
-        if (directory[i] & PAGE_PRESENT)
-            memory_free_page(directory[i] & ~(PAGE_SIZE - 1u));
+        unsigned int *table;
+        if (!(directory[i] & PAGE_PRESENT))
+            continue;
+        table = (unsigned int *)(directory[i] & ~(PAGE_SIZE - 1u));
+        for (j = 0; j < 1024u; j++) {
+            if (table[j] & PAGE_PRESENT)
+                memory_free_page(table[j] & ~(PAGE_SIZE - 1u));
+        }
+        memory_free_page((unsigned int)table);
     }
     memory_free_page(directory_address);
 }
@@ -302,11 +309,13 @@ unsigned int paging_unmap_user_page(unsigned int directory_address,
     return physical_address;
 }
 
-int paging_user_range_readable(unsigned int directory_address,
-                               unsigned int virtual_address, unsigned int length)
+static int paging_user_range_check(unsigned int directory_address,
+                                   unsigned int virtual_address,
+                                   unsigned int length, int writable)
 {
     unsigned int *directory = (unsigned int *)directory_address;
     unsigned int last;
+    unsigned int needed = PAGE_PRESENT | PAGE_USER | (writable ? PAGE_WRITABLE : 0u);
 
     if (!length)
         return 1;
@@ -324,11 +333,23 @@ int paging_user_range_readable(unsigned int directory_address,
             return 0;
         table = (unsigned int *)(pde & ~(PAGE_SIZE - 1u));
         entry = table[(virtual_address >> 12) & 0x3ffu];
-        if ((entry & (PAGE_PRESENT | PAGE_USER)) != (PAGE_PRESENT | PAGE_USER))
+        if ((entry & needed) != needed)
             return 0;
         if ((virtual_address & ~(PAGE_SIZE - 1u)) ==
             (last & ~(PAGE_SIZE - 1u)))
             return 1;
         virtual_address = (virtual_address & ~(PAGE_SIZE - 1u)) + PAGE_SIZE;
     }
+}
+
+int paging_user_range_readable(unsigned int directory_address,
+                               unsigned int virtual_address, unsigned int length)
+{
+    return paging_user_range_check(directory_address, virtual_address, length, 0);
+}
+
+int paging_user_range_writable(unsigned int directory_address,
+                               unsigned int virtual_address, unsigned int length)
+{
+    return paging_user_range_check(directory_address, virtual_address, length, 1);
 }

@@ -35,8 +35,8 @@ make -C "$ROOT"
 
 if [ "$mode" = terminal ]; then
     exec qemu-system-i386 -kernel "$ROOT/build/tinyos.elf" \
-        -display curses -monitor none -serial none -no-reboot -no-shutdown
+        -display curses -monitor none -serial none -no-reboot
 else
     exec qemu-system-i386 -kernel "$ROOT/build/tinyos.elf" \
-        -no-reboot -no-shutdown
+        -no-reboot
 fi

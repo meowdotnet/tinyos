@@ -4,6 +4,7 @@
 #include "keyboard/keyboard.h"
 #include "arch/i386/gdt.h"
 #include "arch/i386/interrupts.h"
+#include "fs.h"
 #include "lib.h"
 #include "memory.h"
 #include "process.h"
@@ -38,6 +39,20 @@ void kmain(unsigned int magic, void *info)
     process_init();
     kprintf("process: bootstrap pid %u, round-robin scheduler ready\n",
             process_current()->pid);
+
+    {
+        int tfs_rc = tfs_mount();
+        if (tfs_rc == 0) {
+            kprintf("fs: TinyFS mounted (/, %u standard directories)\n", 6u);
+            tfs_rc = tfs_selftest();
+            if (tfs_rc == 0)
+                kprintf("fs: self-test PASS (mkdir/write/read/readdir/stat/lseek)\n");
+            else
+                kprintf("fs: self-test FAIL (%d)\n", tfs_rc);
+        } else {
+            kprintf("fs: mount FAIL (%d)\n", tfs_rc);
+        }
+    }
 
     keyboard_init();
     interrupts_init();

@@ -28,5 +28,7 @@ unsigned int paging_unmap_user_page(unsigned int page_directory,
                                     unsigned int virtual_address);
 int paging_user_range_readable(unsigned int page_directory,
                                unsigned int virtual_address, unsigned int length);
+int paging_user_range_writable(unsigned int page_directory,
+                               unsigned int virtual_address, unsigned int length);
 
 #endif

@@ -18,6 +18,7 @@ OBJS = boot/boot.o \
        kernel/arch/i386/gdt_load.o \
        kernel/arch/i386/interrupts.o \
        kernel/arch/i386/interrupt_stubs.o \
+       kernel/fs.o \
        kernel/panic.o \
        drivers/graphics/vga.o \
        drivers/keyboard/keyboard.o \
