@@ -24,6 +24,7 @@ SECTIONS
     .rodata : {
         *(.rodata*)
         *(.user_init)
+        *(.user_sh)
     } :text
 
     .data : {

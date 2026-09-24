@@ -2,30 +2,60 @@
 #include "arch/i386/gdt.h"
 #include "lib.h"
 #include "memory.h"
-#include "shell.h"
+#include "syscall.h"
 
 #define PROCESS_MAX 8u
 #define USER_STACK_TOP 0x80000000u
+#define BUILTIN_SHELL 1u
 
 extern char stack_top;
-extern void process_enter_user(uint32_t entry, uint32_t stack);
+extern void process_iret_to(struct process *next);
+
+extern char user_sh_image[];
+extern char user_sh_image_end[];
 
 static struct process processes[PROCESS_MAX];
 static struct process *current;
 static uint32_t active_processes;
 static uint32_t next_pid;
 
-static void switch_to(struct process *next)
+static struct process *find_by_pid(uint32_t pid)
 {
-    if (current == next)
-        return;
-    if (current && current->state == PROCESS_RUNNING)
-        current->state = PROCESS_READY;
+    unsigned int i;
+    for (i = 1; i < PROCESS_MAX; i++)
+        if (processes[i].state != PROCESS_UNUSED && processes[i].pid == pid)
+            return &processes[i];
+    return 0;
+}
 
-    current = next;
-    current->state = PROCESS_RUNNING;
-    paging_switch_directory(current->page_directory);
-    gdt_set_kernel_stack(current->kernel_stack);
+static struct process *pick_ready(void)
+{
+    unsigned int i;
+    unsigned int start = current ? (unsigned int)(current - processes) + 1u : 1u;
+
+    for (i = 0; i < PROCESS_MAX; i++) {
+        struct process *candidate = &processes[(start + i) % PROCESS_MAX];
+        if (candidate == &processes[0])
+            continue;
+        if (candidate->state == PROCESS_READY)
+            return candidate;
+    }
+    return 0;
+}
+
+/* Build a minimal ring-3 return frame at the top of a fresh kernel stack. */
+static void prepare_user_frame(struct process *p, uint32_t entry)
+{
+    struct syscall_frame *f =
+        (struct syscall_frame *)(p->kernel_stack_page + PAGE_SIZE - sizeof(*f));
+
+    kmemset(f, 0, sizeof(*f));
+    f->eip = entry;
+    f->cs = 0x1bu;
+    f->eflags = 0x202u;
+    f->user_esp = p->user_stack;
+    f->user_ss = 0x23u;
+    p->saved_esp = (uint32_t)f;
 }
 
 void process_init(void)
@@ -33,144 +63,206 @@ void process_init(void)
     struct process *bootstrap = &processes[0];
 
     kmemset(processes, 0, sizeof(processes));
-    bootstrap->pid = 1;
+    bootstrap->pid = 0;
     bootstrap->page_directory = paging_kernel_directory();
     bootstrap->kernel_stack = (uint32_t)&stack_top;
-    bootstrap->user_stack = 0;
-    bootstrap->state = PROCESS_READY;
+    bootstrap->state = PROCESS_RUNNING;
+    current = bootstrap;
     active_processes = 1;
-    next_pid = 2;
-    current = 0;
-    switch_to(bootstrap);
+    next_pid = 1;
 }
 
 struct process *process_create(void)
 {
-    struct process *process = 0;
+    struct process *p = 0;
     unsigned int i;
-    unsigned int directory;
-    unsigned int kernel_stack_page;
-    unsigned int user_stack_page;
+    unsigned int dir, ksp, usp;
 
-    for (i = 0; i < PROCESS_MAX; i++) {
+    /* Reap our own terminated children so respawns reuse their slots. */
+    for (i = 1; i < PROCESS_MAX; i++) {
+        struct process *z = &processes[i];
+        if (z->state == PROCESS_TERMINATED && current &&
+            z->parent_pid == current->pid)
+            process_destroy(z);
+    }
+    for (i = 1; i < PROCESS_MAX; i++) {
         if (processes[i].state == PROCESS_UNUSED) {
-            process = &processes[i];
+            p = &processes[i];
             break;
         }
     }
-    if (!process)
+    if (!p)
         return 0;
 
-    directory = paging_create_user_directory();
-    if (!directory)
+    dir = paging_create_user_directory();
+    if (!dir)
         return 0;
-    kernel_stack_page = memory_alloc_page();
-    user_stack_page = memory_alloc_user_page();
-    if (!kernel_stack_page || !user_stack_page)
+    ksp = memory_alloc_page();
+    usp = memory_alloc_user_page();
+    if (!ksp || !usp)
         goto fail;
-    if (paging_map_user_page(directory, USER_STACK_TOP - PAGE_SIZE,
-                             user_stack_page, 1) != 0)
+    if (paging_map_user_page(dir, USER_STACK_TOP - PAGE_SIZE, usp, 1) != 0)
         goto fail;
 
-    kmemset((void *)kernel_stack_page, 0, PAGE_SIZE);
-    kmemset((void *)user_stack_page, 0, PAGE_SIZE);
-    kmemset(process, 0, sizeof(*process));
-    process->pid = next_pid++;
-    process->page_directory = directory;
-    process->kernel_stack_page = kernel_stack_page;
-    process->kernel_stack = kernel_stack_page + PAGE_SIZE;
-    process->user_stack_page = user_stack_page;
-    process->user_stack = USER_STACK_TOP;
-    /* Context setup comes with the first user-mode entry implementation. */
-    process->state = PROCESS_BLOCKED;
+    kmemset((void *)ksp, 0, PAGE_SIZE);
+    kmemset((void *)usp, 0, PAGE_SIZE);
+    kmemset(p, 0, sizeof(*p));
+    p->pid = next_pid++;
+    p->parent_pid = current ? current->pid : 0u;
+    p->page_directory = dir;
+    p->kernel_stack_page = ksp;
+    p->kernel_stack = ksp + PAGE_SIZE;
+    p->user_stack_page = usp;
+    p->user_stack = USER_STACK_TOP;
+    p->state = PROCESS_BLOCKED;
+    prepare_user_frame(p, USER_VIRTUAL_BASE);
     active_processes++;
-    return process;
+    return p;
 
 fail:
-    if (user_stack_page)
-        memory_free_page(user_stack_page);
-    if (kernel_stack_page)
-        memory_free_page(kernel_stack_page);
-    paging_destroy_user_directory(directory);
+    if (usp)
+        memory_free_page(usp);
+    if (ksp)
+        memory_free_page(ksp);
+    paging_destroy_user_directory(dir);
     return 0;
 }
 
-void process_destroy(struct process *process)
+void process_destroy(struct process *p)
 {
-    if (!process || process == &processes[0] || process == current ||
-        process->state == PROCESS_UNUSED)
+    if (!p || p == &processes[0] || p == current || p->state == PROCESS_UNUSED)
         return;
-    if (process->user_stack_page) {
-        paging_unmap_user_page(process->page_directory,
-                               process->user_stack - PAGE_SIZE);
-        memory_free_page(process->user_stack_page);
+    if (p->user_stack_page) {
+        paging_unmap_user_page(p->page_directory, p->user_stack - PAGE_SIZE);
+        memory_free_page(p->user_stack_page);
     }
-    if (process->kernel_stack_page)
-        memory_free_page(process->kernel_stack_page);
-    if (process->user_code_page) {
-        paging_unmap_user_page(process->page_directory, USER_VIRTUAL_BASE);
-        memory_free_page(process->user_code_page);
+    if (p->kernel_stack_page)
+        memory_free_page(p->kernel_stack_page);
+    if (p->user_code_page) {
+        paging_unmap_user_page(p->page_directory, USER_VIRTUAL_BASE);
+        memory_free_page(p->user_code_page);
     }
-    paging_destroy_user_directory(process->page_directory);
-    kmemset(process, 0, sizeof(*process));
+    paging_destroy_user_directory(p->page_directory);
+    kmemset(p, 0, sizeof(*p));
     active_processes--;
 }
 
-int process_map_user_page(struct process *process, uint32_t virtual_address,
-                          uint32_t physical_address, int writable)
+int process_map_user_page(struct process *p, uint32_t virtual,
+                          uint32_t physical, int writable)
 {
-    if (!process || process->state == PROCESS_UNUSED)
+    if (!p || p->state == PROCESS_UNUSED)
         return -1;
-    return paging_map_user_page(process->page_directory, virtual_address,
-                                physical_address, writable);
+    return paging_map_user_page(p->page_directory, virtual, physical, writable);
 }
 
-void process_exit_current(uint32_t status)
-{
-    (void)status;
-    if (current)
-        current->state = PROCESS_TERMINATED;
-}
-
-int process_load_builtin(struct process *process, const void *image,
+int process_load_builtin(struct process *p, const void *image,
                          uint32_t image_size, uint32_t entry)
 {
     unsigned int page;
 
-    if (!process || !image || !image_size || image_size > PAGE_SIZE ||
-        entry != USER_VIRTUAL_BASE || process->user_code_page)
+    if (!p || !image || !image_size || image_size > PAGE_SIZE ||
+        entry != USER_VIRTUAL_BASE || p->user_code_page)
         return -1;
     page = memory_alloc_user_page();
     if (!page)
         return -1;
     kmemset((void *)page, 0, PAGE_SIZE);
     kmemcpy((void *)page, image, image_size);
-    if (process_map_user_page(process, USER_VIRTUAL_BASE, page, 0) != 0) {
+    if (process_map_user_page(p, USER_VIRTUAL_BASE, page, 0) != 0) {
         memory_free_page(page);
         return -1;
     }
-    process->user_code_page = page;
-    process->state = PROCESS_READY;
+    p->user_code_page = page;
     return 0;
 }
 
-void process_start(struct process *process, uint32_t entry)
+static void switch_to(struct process *next, int deliver, uint32_t status)
 {
-    if (!process || process->state != PROCESS_READY)
-        return;
-    switch_to(process);
-    process_enter_user(entry, process->user_stack);
+    if (deliver && next->saved_esp)
+        ((struct syscall_frame *)next->saved_esp)->eax = status;
+    current = next;
+    next->state = PROCESS_RUNNING;
+    paging_switch_directory(next->page_directory);
+    gdt_set_kernel_stack(next->kernel_stack);
+    process_iret_to(next);
+    __builtin_unreachable();
 }
 
-void process_return_to_kernel(void)
+/* Enter the very first userspace process; the bootstrap context is retired. */
+void process_start(struct process *p, uint32_t entry)
 {
-    struct process *bootstrap = &processes[0];
+    if (!p)
+        return;
+    prepare_user_frame(p, entry);
+    p->state = PROCESS_READY;
+    if (processes[0].state != PROCESS_UNUSED) {
+        processes[0].state = PROCESS_UNUSED;
+        if (active_processes)
+            active_processes--;
+    }
+    switch_to(p, 0, 0);
+    __builtin_unreachable();
+}
 
-    paging_switch_directory(bootstrap->page_directory);
-    current = bootstrap;
-    current->state = PROCESS_RUNNING;
-    gdt_set_kernel_stack(current->kernel_stack);
-    shell_run();
+struct process *process_spawn_builtin(uint32_t id)
+{
+    struct process *p;
+    const void *img;
+    uint32_t size;
+
+    if (id != BUILTIN_SHELL || !current || current == &processes[0])
+        return 0;
+    img = user_sh_image;
+    size = (uint32_t)(user_sh_image_end - user_sh_image);
+    p = process_create();
+    if (!p)
+        return 0;
+    if (process_load_builtin(p, img, size, USER_VIRTUAL_BASE) != 0) {
+        process_destroy(p);
+        return 0;
+    }
+    p->state = PROCESS_READY;
+    return p;
+}
+
+void process_exit_current(uint32_t status)
+{
+    struct process *parent;
+    struct process *next;
+
+    if (!current || current == &processes[0])
+        goto halt;
+
+    current->exit_status = status;
+    current->state = PROCESS_TERMINATED;
+    parent = find_by_pid(current->parent_pid);
+    if (parent && parent->state == PROCESS_BLOCKED)
+        parent->state = PROCESS_READY;
+    next = pick_ready();
+    if (!next)
+        goto halt;
+    switch_to(next, next == parent, status);
+    __builtin_unreachable();
+
+halt:
+    for (;;)
+        __asm__ volatile("hlt");
+}
+
+void process_block_and_switch(void)
+{
+    struct process *next;
+
+    if (!current || current == &processes[0])
+        goto halt;
+    current->state = PROCESS_BLOCKED;
+    next = pick_ready();
+    if (!next)
+        goto halt;
+    switch_to(next, 0, 0);
+    __builtin_unreachable();
+
+halt:
     for (;;)
         __asm__ volatile("hlt");
 }
@@ -178,21 +270,6 @@ void process_return_to_kernel(void)
 struct process *process_current(void)
 {
     return current;
-}
-
-struct process *process_schedule(void)
-{
-    unsigned int i;
-
-    if (current && current->state == PROCESS_RUNNING)
-        return current;
-    for (i = 0; i < PROCESS_MAX; i++) {
-        if (processes[i].state == PROCESS_READY) {
-            switch_to(&processes[i]);
-            return current;
-        }
-    }
-    return 0;
 }
 
 uint32_t process_count(void)

@@ -8,7 +8,6 @@
 #include "memory.h"
 #include "process.h"
 #include "panic.h"
-#include "shell.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
 
@@ -37,7 +36,7 @@ void kmain(unsigned int magic, void *info)
     kprintf("memory: %u KiB free, supervisor kernel map active\n",
             memory_free_pages() * 4u);
     process_init();
-    kprintf("process: bootstrap pid %u, one-slot scheduler ready\n",
+    kprintf("process: bootstrap pid %u, round-robin scheduler ready\n",
             process_current()->pid);
 
     keyboard_init();

@@ -67,6 +67,12 @@ void vga_setcolor(unsigned char fg, unsigned char bg)
 
 void vga_putc(char c)
 {
+    if (c == '\b') {
+        /* Erase the previous cell and step the cursor back. Lets ring-3
+         * code (the userspace shell) do line editing through SYS_WRITE. */
+        vga_backspace();
+        return;
+    }
     if (c == '\n') {
         vga_col = 0;
         if (++vga_row == VGA_HEIGHT) {

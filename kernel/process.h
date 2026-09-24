@@ -11,34 +11,46 @@ enum process_state {
     PROCESS_TERMINATED
 };
 
+/*
+ * Field order is ABI-sensitive: process_iret_to() in
+ * kernel/arch/i386/user_mode.s reads `saved_esp` at byte offset 36.
+ */
 struct process {
-    uint32_t pid;
-    uint32_t page_directory;
-    uint32_t kernel_stack;
-    uint32_t user_stack;
-    uint32_t kernel_stack_page;
-    uint32_t user_stack_page;
-    uint32_t user_code_page;
-    enum process_state state;
+    uint32_t pid;              /*  0 */
+    uint32_t parent_pid;       /*  4 */
+    uint32_t page_directory;   /*  8 */
+    uint32_t kernel_stack;     /* 12  top of supervisor stack */
+    uint32_t user_stack;       /* 16  top of ring-3 stack */
+    uint32_t kernel_stack_page;/* 20 */
+    uint32_t user_stack_page;  /* 24 */
+    uint32_t user_code_page;   /* 28 */
+    uint32_t exit_status;      /* 32 */
+    uint32_t saved_esp;        /* 36  kernel ESP while switched out */
+    enum process_state state;  /* 40 */
 };
 
-/* Establishes PID 1 as the current bootstrap process. */
+typedef char process_saved_esp_offset_check[
+    __builtin_offsetof(struct process, saved_esp) == 36 ? 1 : -1];
+
+/* PID 0: kernel bootstrap context, never resumed by the scheduler. */
 void process_init(void);
-/*
- * Creates an address space with a supervisor-only kernel mapping and one
- * writable user stack page.  It does not yet manufacture a ring-3 context.
- */
 struct process *process_create(void);
 void process_destroy(struct process *process);
 int process_map_user_page(struct process *process, uint32_t virtual_address,
                           uint32_t physical_address, int writable);
-void process_exit_current(uint32_t status);
 int process_load_builtin(struct process *process, const void *image,
                          uint32_t image_size, uint32_t entry);
 void process_start(struct process *process, uint32_t entry);
-void process_return_to_kernel(void);
+
+/* Create a fresh userspace process from a builtin image id. */
+struct process *process_spawn_builtin(uint32_t id);
+
+/* Cooperative context switch; never returns on the caller's stack. */
+void process_exit_current(uint32_t status);
+void process_block_and_switch(void);
+
+/* Queries. */
 struct process *process_current(void);
-struct process *process_schedule(void);
 uint32_t process_count(void);
 
 #endif
