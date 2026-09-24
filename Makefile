@@ -12,6 +12,7 @@ OBJS = boot/boot.o \
        kernel/lib.o \
        kernel/memory.o \
        kernel/process.o \
+       kernel/syscall.o \
        kernel/arch/i386/gdt.o \
        kernel/arch/i386/gdt_load.o \
        kernel/arch/i386/interrupts.o \

@@ -119,6 +119,13 @@ int process_map_user_page(struct process *process, uint32_t virtual_address,
                                 physical_address, writable);
 }
 
+void process_exit_current(uint32_t status)
+{
+    (void)status;
+    if (current)
+        current->state = PROCESS_TERMINATED;
+}
+
 struct process *process_current(void)
 {
     return current;

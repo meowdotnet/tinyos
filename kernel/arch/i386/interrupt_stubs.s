@@ -56,6 +56,7 @@ ISR_NOERR 28
 ISR_NOERR 29
 ISR_ERR   30
 ISR_NOERR 31
+ISR_NOERR 128
 IRQ 32
 IRQ 33
 IRQ 34
@@ -77,9 +78,10 @@ interrupt_common:
     cld
     pusha
     mov 32(%esp), %eax
+    pushl %esp
     pushl %eax
     call interrupt_dispatch
-    add $4, %esp
+    add $8, %esp
     popa
     add $8, %esp
     iret
@@ -92,6 +94,9 @@ interrupt_stub_table:
     .long isr24, isr25, isr26, isr27, isr28, isr29, isr30, isr31
     .long isr32, isr33, isr34, isr35, isr36, isr37, isr38, isr39
     .long isr40, isr41, isr42, isr43, isr44, isr45, isr46, isr47
+
+.global syscall_stub
+.set syscall_stub, isr128
 
 .global idt_load
 .type idt_load, @function

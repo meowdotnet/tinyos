@@ -301,3 +301,34 @@ unsigned int paging_unmap_user_page(unsigned int directory_address,
     __asm__ volatile("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return physical_address;
 }
+
+int paging_user_range_readable(unsigned int directory_address,
+                               unsigned int virtual_address, unsigned int length)
+{
+    unsigned int *directory = (unsigned int *)directory_address;
+    unsigned int last;
+
+    if (!length)
+        return 1;
+    if (!directory_address || virtual_address < USER_VIRTUAL_BASE ||
+        virtual_address >= USER_VIRTUAL_LIMIT ||
+        length - 1u > USER_VIRTUAL_LIMIT - 1u - virtual_address)
+        return 0;
+    last = virtual_address + length - 1u;
+    while (1) {
+        unsigned int *table;
+        unsigned int entry;
+        unsigned int pde = directory[virtual_address >> 22];
+
+        if ((pde & (PAGE_PRESENT | PAGE_USER)) != (PAGE_PRESENT | PAGE_USER))
+            return 0;
+        table = (unsigned int *)(pde & ~(PAGE_SIZE - 1u));
+        entry = table[(virtual_address >> 12) & 0x3ffu];
+        if ((entry & (PAGE_PRESENT | PAGE_USER)) != (PAGE_PRESENT | PAGE_USER))
+            return 0;
+        if ((virtual_address & ~(PAGE_SIZE - 1u)) ==
+            (last & ~(PAGE_SIZE - 1u)))
+            return 1;
+        virtual_address = (virtual_address & ~(PAGE_SIZE - 1u)) + PAGE_SIZE;
+    }
+}

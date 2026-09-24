@@ -31,6 +31,7 @@ struct process *process_create(void);
 void process_destroy(struct process *process);
 int process_map_user_page(struct process *process, uint32_t virtual_address,
                           uint32_t physical_address, int writable);
+void process_exit_current(uint32_t status);
 struct process *process_current(void);
 struct process *process_schedule(void);
 uint32_t process_count(void);
