@@ -20,19 +20,21 @@ The kernel ELF is written to `build/tinyos.elf`. To create a bootable ISO, insta
 GRUB's `grub-mkrescue` and `xorriso`, then run `make iso`. To run it directly in
 QEMU, install `qemu-system-i386` and run `make qemu`.
 
-The convenience launcher builds the kernel and starts it in QEMU's terminal
-display by default. Pass `--qemu` to use QEMU's normal graphical display:
+The convenience launcher builds the kernel and starts it in QEMU's graphical
+display by default. This preserves the standard black VGA background instead
+of inheriting a terminal theme's ANSI black. Use `--terminal` for QEMU's curses
+display:
 
 ```sh
 ./run.sh
-./run.sh --qemu
+./run.sh --terminal
 ```
 
 ## Layout
 
 - `boot/` — Multiboot entry point and initial stack
 - `kernel/` — kernel entry, freestanding helpers, physical-page allocator,
-  identity paging, one-slot process manager, x86 descriptor/interrupt setup,
+  protected paging, process manager, x86 descriptor/interrupt setup,
   shell, and panic handler
 - `drivers/graphics/` — VGA text-mode console
 - `drivers/keyboard/` — PS/2 keyboard (US scancode set 1)
@@ -40,9 +42,14 @@ display by default. Pass `--qemu` to use QEMU's normal graphical display:
 
 After boot, the kernel reports memory and interrupt setup, then type `help` at
 the `tinyos$` prompt. Keyboard input now arrives through IRQ1. The kernel uses
-flat ring 0/ring 3 GDT entries and a TSS, while its first 64 MiB are identity
-mapped with 4 MiB pages; these are the base for a later userspace transition.
-PID 1 represents the bootstrap kernel context and is selected by the initial
-one-slot scheduler.
+flat ring 0/ring 3 GDT entries and a TSS. Its first 64 MiB are identity-mapped
+through supervisor-only 4 KiB entries, so every process can transition to
+mapped kernel code without exposing kernel memory to ring 3. New processes
+receive a distinct page directory, a private kernel stack, and a writable user
+stack at `0x80000000`; user pages live in `0x40000000` through `0xbfffffff`
+and must use frames from `memory_alloc_user_page()`. PID 1 represents the
+bootstrap kernel context and is selected by the initial one-slot scheduler.
+Ring-3 context creation and syscall dispatch remain the next layer on top of
+these address spaces.
 The `panic` command deliberately halts the kernel and is useful for checking the
 fatal-error display.

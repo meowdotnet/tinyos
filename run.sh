@@ -4,25 +4,25 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
 
-mode=terminal
+mode=qemu
 case ${1-} in
-    "") ;;
-    --qemu) mode=qemu ;;
+    ""|--qemu) ;;
+    --terminal) mode=terminal ;;
     --help|-h)
-        echo "Usage: ./run.sh [--qemu]"
-        echo "  (default) Run in the host terminal using QEMU's curses display."
-        echo "  --qemu    Run QEMU with its normal graphical display."
+        echo "Usage: ./run.sh [--qemu|--terminal]"
+        echo "  (default, --qemu) Run QEMU with its normal graphical display."
+        echo "  --terminal          Run in the host terminal using QEMU's curses display."
         exit 0
         ;;
     *)
         echo "Unknown option: $1" >&2
-        echo "Usage: ./run.sh [--qemu]" >&2
+        echo "Usage: ./run.sh [--qemu|--terminal]" >&2
         exit 2
         ;;
 esac
 
 if [ "$#" -gt 1 ]; then
-    echo "Usage: ./run.sh [--qemu]" >&2
+    echo "Usage: ./run.sh [--qemu|--terminal]" >&2
     exit 2
 fi
 

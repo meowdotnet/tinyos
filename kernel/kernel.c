@@ -30,7 +30,7 @@ void kmain(unsigned int magic, void *info)
     gdt_init();
     memory_init(info, magic == MULTIBOOT_MAGIC);
     paging_init();
-    kprintf("memory: %u KiB free, identity map active\n",
+    kprintf("memory: %u KiB free, supervisor kernel map active\n",
             memory_free_pages() * 4u);
     process_init();
     kprintf("process: bootstrap pid %u, one-slot scheduler ready\n",
