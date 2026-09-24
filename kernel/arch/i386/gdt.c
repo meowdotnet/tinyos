@@ -64,3 +64,8 @@ void gdt_init(void)
     gdt_pointer.base = (unsigned int)&gdt;
     gdt_load(&gdt_pointer);
 }
+
+void gdt_set_kernel_stack(unsigned int stack_top)
+{
+    tss.esp0 = stack_top;
+}

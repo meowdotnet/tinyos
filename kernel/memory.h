@@ -7,5 +7,6 @@ unsigned int memory_alloc_page(void); /* physical address, 0 when exhausted */
 void memory_free_page(unsigned int physical_address);
 unsigned int memory_free_pages(void);
 void paging_init(void);
+unsigned int paging_kernel_directory(void);
 
 #endif

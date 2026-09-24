@@ -6,6 +6,7 @@
 #include "arch/i386/interrupts.h"
 #include "lib.h"
 #include "memory.h"
+#include "process.h"
 #include "shell.h"
 
 #define MULTIBOOT_MAGIC 0x2BADB002
@@ -31,6 +32,9 @@ void kmain(unsigned int magic, void *info)
     paging_init();
     kprintf("memory: %u KiB free, identity map active\n",
             memory_free_pages() * 4u);
+    process_init();
+    kprintf("process: bootstrap pid %u, one-slot scheduler ready\n",
+            process_current()->pid);
 
     keyboard_init();
     interrupts_init();

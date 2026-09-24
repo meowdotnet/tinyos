@@ -151,3 +151,8 @@ void paging_init(void)
     __asm__ volatile("mov %%cr0, %%eax; or $0x80000000, %%eax; mov %%eax, %%cr0"
                      : : : "eax", "memory");
 }
+
+unsigned int paging_kernel_directory(void)
+{
+    return (unsigned int)page_directory;
+}
