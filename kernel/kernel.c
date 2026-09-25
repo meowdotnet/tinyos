@@ -20,45 +20,30 @@ void kmain(unsigned int magic, void *info)
     (void)info;
 
     vga_init();
-    vga_setcolor(VGA_LIGHT_GREEN, VGA_BLACK);
-    vga_puts("tinyos -- tiny pure-UNIX kernel\n");
     vga_setcolor(VGA_LIGHT_GREY, VGA_BLACK);
 
-    if (magic == MULTIBOOT_MAGIC)
-        vga_puts("boot: multiboot magic OK\n");
-    else
+    if (magic != MULTIBOOT_MAGIC)
         vga_puts("boot: BAD multiboot magic!\n");
-
-    kprintf("boot: info=%p\n", (unsigned int)info);
 
     gdt_init();
     memory_init(info, magic == MULTIBOOT_MAGIC);
     paging_init();
-    kprintf("memory: %u KiB free, supervisor kernel map active\n",
-            memory_free_pages() * 4u);
     process_init();
-    kprintf("process: bootstrap pid %u, round-robin scheduler ready\n",
-            process_current()->pid);
 
     {
         int tfs_rc = tfs_mount();
-        if (tfs_rc == 0) {
-            kprintf("fs: TinyFS mounted (/, %u standard directories)\n", 6u);
-            tfs_rc = tfs_selftest();
-            if (tfs_rc == 0)
-                kprintf("fs: self-test PASS (mkdir/write/read/readdir/stat/lseek)\n");
-            else
-                kprintf("fs: self-test FAIL (%d)\n", tfs_rc);
+        if (tfs_rc != 0) {
+            kprintf("fs: mount failed (%d)\n", tfs_rc);
         } else {
-            kprintf("fs: mount FAIL (%d)\n", tfs_rc);
+            tfs_rc = tfs_selftest();
+            if (tfs_rc != 0)
+                kprintf("fs: self-test failed (%d)\n", tfs_rc);
         }
     }
 
     keyboard_init();
     interrupts_init();
     interrupts_enable();
-    vga_puts("input: ps/2 keyboard ready\n");
-    vga_puts("interrupts: IDT and PIC ready\n");
 
     {
         struct process *init = process_create();
@@ -67,7 +52,6 @@ void kmain(unsigned int magic, void *info)
         if (!init || process_load_builtin(init, user_init_image, image_size,
                                           USER_VIRTUAL_BASE) != 0)
             panic("unable to start init");
-        kprintf("process: starting init pid %u in ring 3\n", init->pid);
         process_start(init, USER_VIRTUAL_BASE);
     }
 

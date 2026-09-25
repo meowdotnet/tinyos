@@ -46,8 +46,8 @@ display:
 - `drivers/keyboard/` — PS/2 keyboard (US scancode set 1)
 - `linker.ld`, `grub.cfg`, `Makefile` — ELF layout and build/boot setup
 
-After boot the kernel reports memory and interrupt setup, then a genuine
-userspace process tree takes over:
+After a successful boot the kernel stays quiet and hands control to the
+userspace process tree:
 
 ```
 kernel
@@ -60,8 +60,8 @@ create `/bin/sh`, then `SYS_WAIT`. When the shell calls `SYS_EXIT`, the kernel
 switches back to `/init`, `SYS_WAIT` returns the child's status, and `/init`
 respawns a fresh shell. There is no special "and now somehow we get a shell"
 path in the kernel; the interactive shell (`help`, `uname`, `whoami`, `echo`,
-`clear`, `shutdown`, `exit`, plus the `ls`/`cat`/`put`/`mkdir`/`stat` file
-commands) is `/bin/sh` running entirely in ring 3 and talking to the kernel
+`clear`, `shutdown`, `exit`, plus the `cd`/`ls`/`cat`/`put`/`mkdir`/`stat`
+file commands) is `/bin/sh` running entirely in ring 3 and talking to the kernel
 only through `int $0x80`. Backspace is handled by the shell's line editor,
 which emits a `"\b \b"` erase sequence through `SYS_WRITE`; the VGA text driver
 interprets `\b` by blanking the previous cell and stepping the cursor back.
@@ -116,24 +116,27 @@ the descriptor's offset as its cursor, returning one directory entry per call.
 The current syscall ABI accepts paths up to 127 bytes (the on-disk name field
 supports 255-byte names for later callers).
 There is no journaling, no indirect blocks, no copy-on-write — those come later
-only if TinyOS actually needs them. Deletion/rename and current-working-directory
-state are not part of this first cut; a relative path passed to the shell is
-interpreted from `/`.
+only if TinyOS actually needs them. Deletion/rename are not part of this first
+cut. The shell keeps a small current-working-directory buffer for `cd`; direct
+kernel-relative paths are still rooted at `/`.
 
 A boot-time self-test (`tfs_selftest`) exercises mkdir → write → read-back →
 readdir → stat, including a file crossing a 4 KiB block boundary and an
-`lseek`, and prints PASS/FAIL before `/init` runs. Truncation releases the
-file's old data pages rather than retaining stale bytes. Its fixture is kept
-under `/tmp/.tfs-selftest`, leaving the standard root clean.
+`lseek`; it stays silent on success and reports only failures before `/init`
+runs. Truncation releases the file's old data pages rather than retaining
+stale bytes. Its fixtures are kept under `/tmp/.tfs-selftest` and
+`/tmp/.tfs-dirtest`, leaving the standard root clean.
 
 Try it at the `sh$` prompt:
 
 ```
-mkdir /home/z
-put /home/z/note hello from ring3
-cat /home/z/note        # -> hello from ring3
-ls /home/z              # -> note
-stat /home/z/note       # -> size=16  ino=N  type=file
+cd /home
+mkdir z
+cd z
+put note hello from ring3
+cat note                # -> hello from ring3
+ls                      # -> note
+stat note               # -> size=16  ino=N  type=file
 ```
 
 Keyboard input arrives through IRQ1. The kernel uses flat ring 0/ring 3 GDT

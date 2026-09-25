@@ -222,7 +222,7 @@ abspath:
     incl %esi
     incl %edi
     jmp 1b
-2:  cmpb $47, (PATHBUF)            # cwd == "/" needs no extra slash
+2:  cmpb $0, CWDBUF+1              # cwd == "/" needs no extra slash
     je 3f
     cmpl $PATHBUF_LIMIT, %edi
     jae 9f
@@ -456,6 +456,7 @@ do_cd:
     int $0x80
     testl %eax, %eax
     jne cd_err
+    movl $STATBUF, %ecx           # reload after the syscall
     movl 4(%ecx), %eax            # struct tfs_stat.mode
     andl $0xf000, %eax
     cmpl $0x4000, %eax             # TFS_IFDIR
