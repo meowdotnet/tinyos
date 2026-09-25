@@ -13,6 +13,7 @@
 .set DENTBUF_SIZE, 264        # 8-byte header + TFS_NAME_MAX
 .set STATBUF, 0x7ffff480     # struct tfs_stat (7 words = 28 bytes)
 .set FILEBUF, 0x7ffff4c0     # 512-byte file data buffer
+.set CWDBUF, 0x7ffff700     # current working directory (128 bytes)
 .set SYS_WRITE, 1
 .set SYS_READ, 2
 .set SYS_EXIT, 3
@@ -43,6 +44,8 @@
 
 user_sh_image:
 _start:
+    movb $47, CWDBUF
+    movb $0, CWDBUF+1
     movl $(BASE + banner - user_sh_image), %ebx
     movl $(banner_end - banner), %ecx
     call puts
@@ -199,36 +202,69 @@ strlen:
     ret
 
 # abspath: eax=arg ptr -> copy one space-delimited token to PATHBUF,
-# prefixing '/' if relative. Clobbers eax/ecx/esi/edi. eax = PATHBUF, or 0
-# when the token is too long.
+# resolving relative arguments against CWDBUF. Clobbers eax/ecx/edx/esi/edi.
+# eax = PATHBUF, or 0 when the resulting path is too long.
 abspath:
     pushl %esi
     pushl %edi
-    movl %eax, %esi
+    movl %eax, %edx              # preserve original argument pointer
     movl $PATHBUF, %edi
-    cmpb $47, (%esi)              # '/'
-    je 1f
-    movb $47, (%edi)              # prepend '/'
-    incl %edi
+    cmpb $47, (%edx)              # absolute path?
+    je 3f
+
+    movl $CWDBUF, %esi             # copy current directory first
 1:  movb (%esi), %al
     testb %al, %al
     je 2f
-    cmpb $32, %al                 # stop at space
-    je 2f
     cmpl $PATHBUF_LIMIT, %edi
-    jae 3f
+    jae 9f
     movb %al, (%edi)
     incl %esi
     incl %edi
     jmp 1b
-2:  movb $0, (%edi)
+2:  cmpb $47, (PATHBUF)            # cwd == "/" needs no extra slash
+    je 3f
+    cmpl $PATHBUF_LIMIT, %edi
+    jae 9f
+    movb $47, (%edi)
+    incl %edi
+
+3:  movb (%edx), %al              # copy the argument token
+    testb %al, %al
+    je 5f
+    cmpb $32, %al                 # stop at space
+    je 5f
+    cmpl $PATHBUF_LIMIT, %edi
+    jae 9f
+    movb %al, (%edi)
+    incl %edx
+    incl %edi
+    jmp 3b
+5:  movb $0, (%edi)
     popl %edi
     popl %esi
     movl $PATHBUF, %eax
     ret
-3:  popl %edi
+9:  popl %edi
     popl %esi
     xorl %eax, %eax
+    ret
+
+# save_cwd: copy PATHBUF into CWDBUF. Clobbers eax/ecx/esi/edi.
+save_cwd:
+    pushl %esi
+    pushl %edi
+    movl $PATHBUF, %esi
+    movl $CWDBUF, %edi
+1:  movb (%esi), %al
+    movb %al, (%edi)
+    testb %al, %al
+    je 2f
+    incl %esi
+    incl %edi
+    jmp 1b
+2:  popl %edi
+    popl %esi
     ret
 
 # putu: print unsigned decimal in eax. Clobbers eax/ecx/edx/esi/edi.
@@ -303,6 +339,12 @@ run_command:
     call strcmp
     testl %eax, %eax
     jz do_shutdown
+
+    movl %ebp, %esi
+    movl $(BASE + cmd_cd - user_sh_image), %edi
+    call cmdeq
+    testl %eax, %eax
+    jz do_cd
 
     # --- TinyFS commands (word match, arguments allowed) ---
     movl %ebp, %esi
@@ -397,6 +439,34 @@ do_echo:
     call putsz
     ret
 
+# cd [dir]: change the shell's current working directory.
+do_cd:
+    call getarg
+    testl %eax, %eax
+    jnz 1f
+    movb $47, CWDBUF              # no argument means /
+    movb $0, CWDBUF+1
+    ret
+1:  call abspath
+    testl %eax, %eax
+    jz cd_err
+    movl $PATHBUF, %ebx
+    movl $STATBUF, %ecx
+    movl $SYS_STAT, %eax
+    int $0x80
+    testl %eax, %eax
+    jne cd_err
+    movl 4(%ecx), %eax            # struct tfs_stat.mode
+    andl $0xf000, %eax
+    cmpl $0x4000, %eax             # TFS_IFDIR
+    jne cd_err
+    call save_cwd
+    ret
+cd_err:
+    movl $(BASE + msg_cderr - user_sh_image), %esi
+    call putsz
+    ret
+
 # ---- TinyFS command handlers ----
 
 # print "<name>\n" for one dirent at DENTBUF; esi=dirent ptr
@@ -418,9 +488,7 @@ do_ls:
     call getarg
     testl %eax, %eax
     jnz 1f
-    movl $PATHBUF, %eax          # default path "/"
-    movb $47, (%eax)
-    movb $0, 1(%eax)
+    movl $CWDBUF, %eax           # default path is the current directory
 1:  call abspath                 # -> PATHBUF or 0
     testl %eax, %eax
     jz ls_err
@@ -644,13 +712,14 @@ cmd_echo:    .asciz "echo"
 cmd_exit:    .asciz "exit"
 cmd_clear:   .asciz "clear"
 cmd_shutdown: .asciz "shutdown"
+cmd_cd:       .asciz "cd"
 cmd_ls:      .asciz "ls"
 cmd_mkdir:   .asciz "mkdir"
 cmd_cat:     .asciz "cat"
 cmd_put:     .asciz "put"
 cmd_stat:    .asciz "stat"
 msg_help:    .asciz "commands: help uname whoami echo clear shutdown exit\n"
-msg_help2:   .asciz "         ls [dir] cat <file> put <file> <text>\n"
+msg_help2:   .asciz "         cd [dir] ls [dir] cat <file> put <file> <text>\n"
 msg_help3:   .asciz "         mkdir <dir> stat <path>\n"
 msg_shutdown: .asciz "sh: shutdown was ignored by the emulator\n"
 msg_uname:   .asciz "tinyos 0.2 pure-UNIX i386 (/bin/sh)\n"
@@ -658,6 +727,7 @@ msg_whoami:  .asciz "root\n"
 msg_bye:     .asciz "sh exiting; init will respawn me\n"
 msg_unknown: .asciz "sh: unknown command\n"
 msg_fserr:   .asciz "fs: operation failed\n"
+msg_cderr:   .asciz "cd: not a directory\n"
 msg_mkdirok: .asciz "mkdir: ok\n"
 msg_size:    .asciz "size="
 msg_ino:     .asciz " ino="
